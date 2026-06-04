@@ -37,7 +37,8 @@ textarea {
 .hero-panel,
 .panel,
 .metric-card,
-.error-banner {
+.error-banner,
+.mutation-banner {
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.76);
   backdrop-filter: blur(18px);
@@ -139,6 +140,13 @@ h2 {
   color: #fecaca;
 }
 
+.mutation-banner {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  color: #bfdbfe;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -184,6 +192,10 @@ h2 {
 .panel {
   border-radius: 28px;
   padding: 24px;
+}
+
+.panel-controls {
+  margin-bottom: 20px;
 }
 
 .panel-header {
@@ -233,6 +245,66 @@ h2 {
 
 .panel-table {
   overflow: hidden;
+}
+
+.create-form {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr 0.9fr auto;
+  gap: 14px;
+}
+
+.create-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.create-form span {
+  font-size: 0.85rem;
+  color: #93c5fd;
+}
+
+input,
+select,
+button {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+input,
+select {
+  width: 100%;
+  padding: 0 14px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.88);
+}
+
+button {
+  padding: 0 18px;
+  color: #eff6ff;
+  background: linear-gradient(135deg, #4f74ff 0%, #7c9cff 100%);
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.action-row select {
+  min-width: 120px;
+}
+
+.danger-button {
+  background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);
 }
 
 .table-wrap {
@@ -294,6 +366,10 @@ tbody tr:hover {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .create-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -328,5 +404,14 @@ tbody tr:hover {
 
   .chart-area {
     height: 220px;
+  }
+
+  .create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

@@ -56,6 +56,34 @@ export default function App() {
   const [connectionState, setConnectionState] = useState("connecting");
   const [lastUpdateAt, setLastUpdateAt] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [mutationMessage, setMutationMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState(null);
+  const [formState, setFormState] = useState({
+    customer_name: "",
+    product_name: "",
+    status: "pending"
+  });
+
+  async function request(path, options) {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        "Content-Type": "application/json"
+      },
+      ...options
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({ message: "Request failed" }));
+      throw new Error(errorPayload.error || errorPayload.message || "Request failed");
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    return response.json();
+  }
 
   useEffect(() => {
     let active = true;
@@ -194,6 +222,63 @@ export default function App() {
     }
   ];
 
+  async function handleCreateOrder(event) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setMutationMessage("");
+
+    try {
+      await request("/orders", {
+        method: "POST",
+        body: JSON.stringify(formState)
+      });
+
+      setFormState({
+        customer_name: "",
+        product_name: "",
+        status: "pending"
+      });
+      setMutationMessage("Order submitted. Waiting for CDC stream confirmation.");
+    } catch (error) {
+      setMutationMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleStatusChange(orderId, status) {
+    setActiveOrderId(orderId);
+    setMutationMessage("");
+
+    try {
+      await request(`/orders/${orderId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status })
+      });
+      setMutationMessage(`Order #${orderId} update submitted. Waiting for CDC confirmation.`);
+    } catch (error) {
+      setMutationMessage(error.message);
+    } finally {
+      setActiveOrderId(null);
+    }
+  }
+
+  async function handleDeleteOrder(orderId) {
+    setActiveOrderId(orderId);
+    setMutationMessage("");
+
+    try {
+      await request(`/orders/${orderId}`, {
+        method: "DELETE"
+      });
+      setMutationMessage(`Delete request for order #${orderId} submitted. Waiting for CDC confirmation.`);
+    } catch (error) {
+      setMutationMessage(error.message);
+    } finally {
+      setActiveOrderId(null);
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -216,6 +301,7 @@ export default function App() {
       </section>
 
       {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
+      {mutationMessage ? <div className="mutation-banner">{mutationMessage}</div> : null}
 
       <section className="metrics-grid">
         {metricCards.map((card) => {
@@ -234,6 +320,57 @@ export default function App() {
             </article>
           );
         })}
+      </section>
+
+      <section className="panel panel-controls">
+        <div className="panel-header">
+          <div>
+            <p className="panel-kicker">Manual write path</p>
+            <h2>Create an order through the API</h2>
+          </div>
+          <div className="status-note">Visible updates still arrive back through CDC and SSE</div>
+        </div>
+
+        <form className="create-form" onSubmit={handleCreateOrder}>
+          <label>
+            <span>Customer name</span>
+            <input
+              value={formState.customer_name}
+              onChange={(event) => {
+                setFormState((current) => ({ ...current, customer_name: event.target.value }));
+              }}
+              placeholder="Alicia Rivera"
+              required
+            />
+          </label>
+          <label>
+            <span>Product name</span>
+            <input
+              value={formState.product_name}
+              onChange={(event) => {
+                setFormState((current) => ({ ...current, product_name: event.target.value }));
+              }}
+              placeholder="Ergonomic Chair"
+              required
+            />
+          </label>
+          <label>
+            <span>Status</span>
+            <select
+              value={formState.status}
+              onChange={(event) => {
+                setFormState((current) => ({ ...current, status: event.target.value }));
+              }}
+            >
+              <option value="pending">pending</option>
+              <option value="shipped">shipped</option>
+              <option value="delivered">delivered</option>
+            </select>
+          </label>
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Submitting..." : "Create order"}
+          </button>
+        </form>
       </section>
 
       <section className="dashboard-grid">
@@ -303,12 +440,13 @@ export default function App() {
                 <th>Product</th>
                 <th>Status</th>
                 <th>Updated</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="empty-row">
+                  <td colSpan="6" className="empty-row">
                     No orders to display yet.
                   </td>
                 </tr>
@@ -322,6 +460,31 @@ export default function App() {
                       <span className={`table-badge badge-${order.status}`}>{order.status}</span>
                     </td>
                     <td>{formatTimestamp(order.updated_at)}</td>
+                    <td>
+                      <div className="action-row">
+                        <select
+                          value={order.status}
+                          disabled={activeOrderId === Number(order.id)}
+                          onChange={(event) => {
+                            handleStatusChange(order.id, event.target.value);
+                          }}
+                        >
+                          <option value="pending">pending</option>
+                          <option value="shipped">shipped</option>
+                          <option value="delivered">delivered</option>
+                        </select>
+                        <button
+                          type="button"
+                          className="danger-button"
+                          disabled={activeOrderId === Number(order.id)}
+                          onClick={() => {
+                            handleDeleteOrder(order.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
