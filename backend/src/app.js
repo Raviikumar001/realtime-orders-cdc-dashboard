@@ -8,6 +8,8 @@ const { createDbPool } = require("./db");
 const { eventRoutes } = require("./routes/events");
 const { healthRoutes } = require("./routes/health");
 const { orderRoutes } = require("./routes/orders");
+const { simulatorRoutes } = require("./routes/simulator");
+const { OrderSimulator } = require("./simulator");
 const { SseHub } = require("./sse");
 
 async function buildApp(config) {
@@ -17,6 +19,7 @@ async function buildApp(config) {
   const db = createDbPool(config.database);
   const cdc = new OrdersCdcManager(config.replication, app.log);
   const sseHub = new SseHub(app.log);
+  const simulator = new OrderSimulator(db, app.log);
 
   await app.register(cors, { origin: true });
   await app.register(fastifySse);
@@ -24,6 +27,7 @@ async function buildApp(config) {
   app.decorate("db", db);
   app.decorate("cdc", cdc);
   app.decorate("sseHub", sseHub);
+  app.decorate("simulator", simulator);
 
   app.addHook("onReady", async () => {
     cdc.subscribe(async (event) => {
@@ -34,6 +38,7 @@ async function buildApp(config) {
   });
 
   app.addHook("onClose", async () => {
+    await simulator.stop();
     await cdc.stop();
     await db.end();
   });
@@ -41,6 +46,7 @@ async function buildApp(config) {
   await app.register(eventRoutes);
   await app.register(healthRoutes);
   await app.register(orderRoutes);
+  await app.register(simulatorRoutes);
 
   return app;
 }

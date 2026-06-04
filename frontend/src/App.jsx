@@ -64,6 +64,14 @@ export default function App() {
     product_name: "",
     status: "pending"
   });
+  const [simulatorState, setSimulatorState] = useState({
+    running: false,
+    tickCount: 0,
+    lastAction: null,
+    lastError: null,
+    nextDelayMs: null
+  });
+  const [isSimulatorPending, setIsSimulatorPending] = useState(false);
 
   async function request(path, options) {
     const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -117,6 +125,36 @@ export default function App() {
 
     return () => {
       active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSimulatorState() {
+      try {
+        const nextState = await request("/simulator");
+
+        if (!active) {
+          return;
+        }
+
+        setSimulatorState(nextState);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setMutationMessage(error.message);
+      }
+    }
+
+    loadSimulatorState();
+    const interval = setInterval(loadSimulatorState, 3000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -279,6 +317,27 @@ export default function App() {
     }
   }
 
+  async function handleSimulator(action) {
+    setIsSimulatorPending(true);
+    setMutationMessage("");
+
+    try {
+      const nextState = await request(`/simulator/${action}`, {
+        method: "POST"
+      });
+      setSimulatorState(nextState);
+      setMutationMessage(
+        action === "start"
+          ? "Simulator started. New writes will flow back through CDC and SSE."
+          : "Simulator stopped."
+      );
+    } catch (error) {
+      setMutationMessage(error.message);
+    } finally {
+      setIsSimulatorPending(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -371,6 +430,44 @@ export default function App() {
             {isSubmitting ? "Submitting..." : "Create order"}
           </button>
         </form>
+
+        <div className="simulator-row">
+          <div>
+            <p className="panel-kicker">Auto simulator</p>
+            <h2>{simulatorState.running ? "Simulator is running" : "Simulator is idle"}</h2>
+            <p className="status-note">
+              Ticks: {simulatorState.tickCount} | Next delay: {simulatorState.nextDelayMs ?? "-"}ms
+            </p>
+            <p className="status-note">
+              Last action: {simulatorState.lastAction ? `${simulatorState.lastAction.type} order #${simulatorState.lastAction.orderId}` : "No simulated writes yet"}
+            </p>
+            {simulatorState.lastError ? (
+              <p className="simulator-error">Last simulator error: {simulatorState.lastError}</p>
+            ) : null}
+          </div>
+
+          <div className="simulator-actions">
+            <button
+              type="button"
+              disabled={isSimulatorPending || simulatorState.running}
+              onClick={() => {
+                handleSimulator("start");
+              }}
+            >
+              {isSimulatorPending && !simulatorState.running ? "Starting..." : "Start simulator"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={isSimulatorPending || !simulatorState.running}
+              onClick={() => {
+                handleSimulator("stop");
+              }}
+            >
+              {isSimulatorPending && simulatorState.running ? "Stopping..." : "Stop simulator"}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className="dashboard-grid">

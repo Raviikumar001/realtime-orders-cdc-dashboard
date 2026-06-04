@@ -8,6 +8,7 @@ async function healthRoutes(fastify) {
       ok: true,
       database: "reachable",
       cdc: fastify.cdc.getState(),
+      simulator: fastify.simulator.getState(),
       sse: fastify.sseHub.getState(),
       timestamp: new Date().toISOString()
     };
