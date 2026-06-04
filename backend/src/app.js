@@ -2,10 +2,13 @@
 
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
+const fastifySse = require("@fastify/sse");
 const { OrdersCdcManager } = require("./cdc");
 const { createDbPool } = require("./db");
+const { eventRoutes } = require("./routes/events");
 const { healthRoutes } = require("./routes/health");
 const { orderRoutes } = require("./routes/orders");
+const { SseHub } = require("./sse");
 
 async function buildApp(config) {
   const app = Fastify({
@@ -13,13 +16,20 @@ async function buildApp(config) {
   });
   const db = createDbPool(config.database);
   const cdc = new OrdersCdcManager(config.replication, app.log);
+  const sseHub = new SseHub(app.log);
 
   await app.register(cors, { origin: true });
+  await app.register(fastifySse);
 
   app.decorate("db", db);
   app.decorate("cdc", cdc);
+  app.decorate("sseHub", sseHub);
 
   app.addHook("onReady", async () => {
+    cdc.subscribe(async (event) => {
+      await sseHub.broadcast("order.changed", event);
+    });
+
     await cdc.start();
   });
 
@@ -28,6 +38,7 @@ async function buildApp(config) {
     await db.end();
   });
 
+  await app.register(eventRoutes);
   await app.register(healthRoutes);
   await app.register(orderRoutes);
 

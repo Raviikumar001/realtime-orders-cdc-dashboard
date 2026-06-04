@@ -17,6 +17,7 @@ class OrdersCdcManager {
     this.service = null;
     this.stopped = false;
     this.loopPromise = null;
+    this.subscribers = new Set();
     this.state = {
       connected: false,
       slotName: config.slotName,
@@ -30,6 +31,14 @@ class OrdersCdcManager {
 
   getState() {
     return { ...this.state };
+  }
+
+  subscribe(listener) {
+    this.subscribers.add(listener);
+
+    return () => {
+      this.subscribers.delete(listener);
+    };
   }
 
   async ensureSlot() {
@@ -164,6 +173,10 @@ class OrdersCdcManager {
 
       this.state.lastEvent = event;
       this.logger.info({ cdcEvent: event }, "Received orders CDC event");
+
+      for (const subscriber of this.subscribers) {
+        await subscriber(event);
+      }
     });
   }
 }

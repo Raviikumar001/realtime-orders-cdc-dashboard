@@ -1,8 +1,5 @@
-import React from "react";
 import { createRoot } from "react-dom/client";
+import App from "./App";
+import "./styles.css";
 
-function App() {
-  return React.createElement("div", null, "Frontend scaffold ready. Phase 5 will replace this.");
-}
-
-createRoot(document.getElementById("root")).render(React.createElement(App));
+createRoot(document.getElementById("root")).render(<App />);
