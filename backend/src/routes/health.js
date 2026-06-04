@@ -7,6 +7,7 @@ async function healthRoutes(fastify) {
     return {
       ok: true,
       database: "reachable",
+      cdc: fastify.cdc.getState(),
       timestamp: new Date().toISOString()
     };
   });
