@@ -36,7 +36,7 @@ class OrderSimulator {
     this.logger = logger;
     this.running = false;
     this.timeout = null;
-    this.intervalRange = { min: 1000, max: 3000 };
+    this.intervalRange = { min: 500, max: 500 };
     this.state = {
       running: false,
       tickCount: 0,

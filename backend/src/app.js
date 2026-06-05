@@ -21,7 +21,10 @@ async function buildApp(config) {
   const sseHub = new SseHub(app.log);
   const simulator = new OrderSimulator(db, app.log);
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+  });
   await app.register(fastifySse);
 
   app.decorate("db", db);
