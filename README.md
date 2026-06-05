@@ -177,3 +177,33 @@ npm run dev:frontend
 - **Logical Slot Retention:** Stalled replication slots can prevent Postgres from purging old WAL files, risking disk exhaustion. The CDC manager uses auto-acknowledgement and monitors LSN states.
 - **At-Least-Once Delivery:** Logical replication is designed for at-least-once delivery. If the backend restarts, it may replay events from the last acknowledged LSN slot. The frontend code is built **idempotently** (updating rows based on unique IDs), ensuring duplicates do not corrupt the UI state.
 - **SSE Client Reconnection:** If a browser tab disconnects, Fastify cleans up the client to prevent memory leaks. On reconnection, the backend can replay missed events from its small in-memory SSE buffer when `Last-Event-ID` is still within the buffered range; otherwise the fresh snapshot restores correctness.
+
+---
+
+## 6. If This Were Extended For Production
+
+This version keeps the CDC reader, REST API, simulator, and SSE broadcaster inside one backend service. That keeps the project easy to run, but a production version should split those responsibilities.
+
+The production shape would look closer to this:
+
+```text
+PostgreSQL WAL / logical replication
+  -> CDC worker
+  -> durable event broker
+  -> SSE gateway
+  -> browser clients
+```
+
+The main changes I would make with more time:
+
+- **Separate the CDC worker:** run the WAL/logical-replication consumer as its own service instead of inside the API server.
+- **Add a durable broker:** publish normalized order events to Kafka, Redis Streams, RabbitMQ, or NATS JetStream before sending them to browsers.
+- **Scale the SSE layer separately:** run multiple SSE gateway instances that consume from the broker and handle browser connections.
+- **Add authentication and authorization:** protect REST endpoints, simulator controls, and `/events`; only send users the order data they are allowed to see.
+- **Add pagination and limits:** avoid returning every order from `GET /orders` and from the initial SSE snapshot.
+- **Monitor replication health:** track replication slot lag, retained WAL size, CDC restart count, event latency, SSE connection count, and reconnect rate.
+- **Improve replay behavior:** use the broker for durable replay instead of relying only on the current in-memory SSE buffer.
+- **Handle schema changes carefully:** version the emitted event payloads so database migrations do not break consumers.
+- **Add rate limiting:** protect write endpoints, simulator endpoints, and long-lived SSE connections.
+
+A production version would keep CDC as the source of database changes, but add a broker and separate services for durability, retries, replay, and horizontal scaling.
