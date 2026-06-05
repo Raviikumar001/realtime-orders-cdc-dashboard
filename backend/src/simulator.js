@@ -30,6 +30,20 @@ function randomDelay(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function buildDemoTimestamp(tickCount) {
+  const date = new Date();
+  const dayOffset = 1 + (tickCount % 20);
+  const hour = 9 + (tickCount % 9);
+  const minute = (tickCount * 11) % 60;
+  const second = (tickCount * 17) % 60;
+
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - dayOffset);
+  date.setHours(hour, minute, second, 0);
+
+  return date;
+}
+
 class OrderSimulator {
   constructor(db, logger) {
     this.db = db;
@@ -135,17 +149,19 @@ class OrderSimulator {
   async createOrder() {
     const customerName = randomItem(CUSTOMER_NAMES);
     const productName = randomItem(PRODUCT_NAMES);
+    const updatedAt = buildDemoTimestamp(this.state.tickCount);
     const { rows } = await this.db.query(
-      `INSERT INTO orders (customer_name, product_name, status)
-       VALUES ($1, $2, 'pending')
+      `INSERT INTO orders (customer_name, product_name, status, updated_at)
+       VALUES ($1, $2, 'pending', $3)
        RETURNING *`,
-      [customerName, productName]
+      [customerName, productName, updatedAt.toISOString()]
     );
 
     return {
       type: "create",
       orderId: rows[0].id,
-      status: rows[0].status
+      status: rows[0].status,
+      updatedAt: rows[0].updated_at
     };
   }
 
@@ -158,13 +174,14 @@ class OrderSimulator {
 
     const order = randomItem(candidates);
     const nextStatus = order.status === "pending" ? "shipped" : "delivered";
+    const updatedAt = buildDemoTimestamp(this.state.tickCount);
 
     const { rows } = await this.db.query(
       `UPDATE orders
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2
+       SET status = $1, updated_at = $2
+       WHERE id = $3
        RETURNING *`,
-      [nextStatus, order.id]
+      [nextStatus, updatedAt.toISOString(), order.id]
     );
 
     return {
