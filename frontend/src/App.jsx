@@ -117,19 +117,29 @@ function buildSeriesFromOrders(orders) {
     (left, right) => new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
   );
   const series = [];
+  const totals = {
+    pending: 0,
+    shipped: 0,
+    delivered: 0
+  };
 
   for (const order of sorted) {
     const label = formatChartLabel(order.updated_at);
     const previous = series[series.length - 1];
+    totals[order.status] = (totals[order.status] || 0) + 1;
 
     if (previous && previous.label === label) {
       previous.timestamp = order.updated_at;
-      previous[order.status] = (previous[order.status] || 0) + 1;
+      previous.pending = totals.pending;
+      previous.shipped = totals.shipped;
+      previous.delivered = totals.delivered;
       continue;
     }
 
     const nextEntry = buildChartEntry(order.updated_at);
-    nextEntry[order.status] = 1;
+    nextEntry.pending = totals.pending;
+    nextEntry.shipped = totals.shipped;
+    nextEntry.delivered = totals.delivered;
     series.push(nextEntry);
   }
 
@@ -470,9 +480,9 @@ export default function App() {
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                   <CardDescription>Live order activity</CardDescription>
-                  <CardTitle className="mt-2 text-2xl tracking-tight">Area Chart - Interactive</CardTitle>
+                  <CardTitle className="mt-2 text-2xl tracking-tight">Status Trend</CardTitle>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Recent order changes and live order volume from the replication stream.
+                    Cumulative pending, shipped, and delivered totals from replicated order rows.
                   </p>
                 </div>
                 <div className="w-full md:w-[180px]">
