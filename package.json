@@ -10,6 +10,7 @@
     "dev:backend": "npm run dev --workspace backend",
     "dev:frontend": "npm run dev --workspace frontend",
     "build:frontend": "npm run build --workspace frontend",
-    "start:backend": "npm run start --workspace backend"
+    "start:backend": "npm run start --workspace backend",
+    "seed:orders": "npm run seed:orders --workspace backend"
   }
 }
