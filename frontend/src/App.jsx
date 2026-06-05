@@ -1,21 +1,80 @@
-import { Activity, Boxes, CircleDashed, PackageCheck, Truck } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
-  CartesianGrid,
-  Bar,
-  BarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
+  Boxes,
+  CircleDashed,
+  PackageCheck,
+  Pause,
+  Play,
+  Trash2,
+  Truck
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Area, AreaChart, CartesianGrid, Line, XAxis, YAxis } from "recharts";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent
+} from "@/components/ui/chart";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000";
 
+const STATUS_OPTIONS = ["pending", "shipped", "delivered"];
+
 const STATUS_META = {
-  pending: { label: "Pending", icon: CircleDashed },
-  shipped: { label: "Shipped", icon: Truck },
-  delivered: { label: "Delivered", icon: PackageCheck }
+  pending: {
+    label: "Pending",
+    icon: CircleDashed,
+    badgeClassName: "border-yellow-500/20 bg-yellow-500/10 text-yellow-200"
+  },
+  shipped: {
+    label: "Shipped",
+    icon: Truck,
+    badgeClassName: "border-blue-500/20 bg-blue-500/10 text-blue-200"
+  },
+  delivered: {
+    label: "Delivered",
+    icon: PackageCheck,
+    badgeClassName: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
+  }
+};
+
+const STATUS_CHART_CONFIG = {
+  liveOrders: {
+    label: "Live orders",
+    color: "var(--chart-1)"
+  },
+  changes: {
+    label: "Changes",
+    color: "var(--chart-2)"
+  }
 };
 
 function sortOrders(nextOrders) {
@@ -30,31 +89,45 @@ function formatTimestamp(value) {
   return new Date(value).toLocaleString();
 }
 
-function buildActivityMessage(event) {
-  if (!event?.order) {
-    return "Received update";
-  }
+function formatChartLabel(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+}
 
-  if (event.operation === "INSERT") {
-    return `Order #${event.order.id} created for ${event.order.customer_name}`;
-  }
+function buildChartEntry(timestamp, liveOrders, changes) {
+  return {
+    timestamp,
+    label: formatChartLabel(timestamp),
+    liveOrders,
+    changes
+  };
+}
 
-  if (event.operation === "UPDATE") {
-    return `Order #${event.order.id} moved to ${event.order.status}`;
-  }
-
-  if (event.operation === "DELETE") {
-    return `Order #${event.order.id} deleted`;
-  }
-
-  return `Order #${event.order.id} changed`;
+function MetricCard({ title, subtitle, value, icon: Icon, badgeClassName }) {
+  return (
+    <Card className="gap-2 rounded-2xl border-white/10 bg-card/80 py-4 shadow-none">
+      <CardHeader className="px-5 pb-0">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardDescription>{title}</CardDescription>
+            <CardTitle className="mt-1.5 text-3xl tracking-tight">{value}</CardTitle>
+          </div>
+          <div className={cn("rounded-full border p-2.5", badgeClassName)}>
+            <Icon className="size-4" />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="px-5 pt-0 text-sm text-muted-foreground">{subtitle}</CardContent>
+    </Card>
+  );
 }
 
 export default function App() {
   const [orders, setOrders] = useState([]);
-  const [activity, setActivity] = useState([]);
-  const [connectionState, setConnectionState] = useState("connecting");
-  const [lastUpdateAt, setLastUpdateAt] = useState(null);
+  const [eventSeries, setEventSeries] = useState([]);
+  const [chartRange, setChartRange] = useState("14");
   const [errorMessage, setErrorMessage] = useState("");
   const [mutationMessage, setMutationMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,55 +234,64 @@ export default function App() {
   useEffect(() => {
     const stream = new EventSource(`${API_BASE_URL}/events`);
 
-    function recordActivity(entry) {
-      setActivity((current) => [entry, ...current].slice(0, 12));
-    }
-
     stream.addEventListener("open", () => {
-      setConnectionState("live");
       setErrorMessage("");
     });
 
     stream.addEventListener("connected", (event) => {
-      const payload = JSON.parse(event.data);
-      setConnectionState("live");
-      setLastUpdateAt(payload.timestamp);
-      recordActivity({
-        id: `connected-${payload.timestamp}`,
-        label: "Live stream connected",
-        timestamp: payload.timestamp
-      });
+      JSON.parse(event.data);
     });
 
     stream.addEventListener("snapshot", (event) => {
       const payload = JSON.parse(event.data);
-      setOrders(sortOrders(payload));
-      setLastUpdateAt(new Date().toISOString());
+      const nextOrders = sortOrders(payload);
+      setOrders(nextOrders);
+
+      if (nextOrders.length > 0) {
+        setEventSeries([
+          buildChartEntry(nextOrders[nextOrders.length - 1].updated_at, nextOrders.length, nextOrders.length)
+        ]);
+      }
     });
 
     stream.addEventListener("order.changed", (event) => {
       const payload = JSON.parse(event.data);
 
       setOrders((current) => {
+        let nextOrders;
+
         if (payload.operation === "DELETE") {
-          return current.filter((order) => Number(order.id) !== Number(payload.order.id));
+          nextOrders = current.filter((order) => Number(order.id) !== Number(payload.order.id));
+        } else {
+          nextOrders = current.filter((order) => Number(order.id) !== Number(payload.order.id));
+          nextOrders.push(payload.order);
+          nextOrders = sortOrders(nextOrders);
         }
 
-        const next = current.filter((order) => Number(order.id) !== Number(payload.order.id));
-        next.push(payload.order);
-        return sortOrders(next);
-      });
+        setEventSeries((series) => {
+          const nextLabel = formatChartLabel(payload.meta.receivedAt);
+          const nextSeries = [...series];
 
-      setLastUpdateAt(payload.meta.receivedAt);
-      recordActivity({
-        id: `${payload.meta.lsn}-${payload.order.id}`,
-        label: buildActivityMessage(payload),
-        timestamp: payload.meta.receivedAt
+          if (nextSeries.length > 0 && nextSeries[nextSeries.length - 1].label === nextLabel) {
+            const previous = nextSeries[nextSeries.length - 1];
+            nextSeries[nextSeries.length - 1] = {
+              ...previous,
+              timestamp: payload.meta.receivedAt,
+              liveOrders: nextOrders.length,
+              changes: previous.changes + 1
+            };
+          } else {
+            nextSeries.push(buildChartEntry(payload.meta.receivedAt, nextOrders.length, 1));
+          }
+
+          return nextSeries.slice(-20);
+        });
+
+        return nextOrders;
       });
     });
 
     stream.addEventListener("error", () => {
-      setConnectionState("reconnecting");
       setErrorMessage("Live stream interrupted. Waiting for reconnection.");
     });
 
@@ -218,47 +300,26 @@ export default function App() {
     };
   }, []);
 
-  const totalOrders = orders.length;
-  const pendingOrders = orders.filter((order) => order.status === "pending").length;
-  const shippedOrders = orders.filter((order) => order.status === "shipped").length;
-  const deliveredOrders = orders.filter((order) => order.status === "delivered").length;
+  const totals = useMemo(() => {
+    const pending = orders.filter((order) => order.status === "pending").length;
+    const shipped = orders.filter((order) => order.status === "shipped").length;
+    const delivered = orders.filter((order) => order.status === "delivered").length;
 
-  const chartData = [
-    { name: "Pending", value: pendingOrders },
-    { name: "Shipped", value: shippedOrders },
-    { name: "Delivered", value: deliveredOrders }
-  ];
+    return {
+      total: orders.length,
+      pending,
+      shipped,
+      delivered
+    };
+  }, [orders]);
 
-  const metricCards = [
-    {
-      title: "Total Orders",
-      value: totalOrders,
-      subtitle: "Current tracked orders",
-      icon: Boxes,
-      tone: "total"
-    },
-    {
-      title: "Pending",
-      value: pendingOrders,
-      subtitle: "Awaiting fulfillment",
-      icon: STATUS_META.pending.icon,
-      tone: "pending"
-    },
-    {
-      title: "Shipped",
-      value: shippedOrders,
-      subtitle: "Currently in transit",
-      icon: STATUS_META.shipped.icon,
-      tone: "shipped"
-    },
-    {
-      title: "Delivered",
-      value: deliveredOrders,
-      subtitle: "Completed orders",
-      icon: STATUS_META.delivered.icon,
-      tone: "delivered"
-    }
-  ];
+  const chartData = useMemo(
+    () =>
+      eventSeries.length > 0
+        ? eventSeries.slice(-Number(chartRange))
+        : [buildChartEntry(new Date().toISOString(), totals.total, 0)],
+    [chartRange, eventSeries, totals.total]
+  );
 
   async function handleCreateOrder(event) {
     event.preventDefault();
@@ -284,23 +345,6 @@ export default function App() {
     }
   }
 
-  async function handleStatusChange(orderId, status) {
-    setActiveOrderId(orderId);
-    setMutationMessage("");
-
-    try {
-      await request(`/orders/${orderId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status })
-      });
-      setMutationMessage(`Order #${orderId} update submitted. Waiting for CDC confirmation.`);
-    } catch (error) {
-      setMutationMessage(error.message);
-    } finally {
-      setActiveOrderId(null);
-    }
-  }
-
   async function handleDeleteOrder(orderId) {
     setActiveOrderId(orderId);
     setMutationMessage("");
@@ -309,6 +353,7 @@ export default function App() {
       await request(`/orders/${orderId}`, {
         method: "DELETE"
       });
+      setOrders((current) => current.filter((order) => Number(order.id) !== Number(orderId)));
       setMutationMessage(`Delete request for order #${orderId} submitted. Waiting for CDC confirmation.`);
     } catch (error) {
       setMutationMessage(error.message);
@@ -339,256 +384,297 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">PostgreSQL WAL / CDC / SSE</p>
-          <h1>Real-Time Orders Monitoring Dashboard</h1>
-          <p className="hero-copy">
-            Browser updates are driven by committed WAL changes, streamed through the Fastify backend,
-            and rendered live without polling.
-          </p>
-        </div>
-
-        <div className="hero-status-group">
-          <div className={`status-pill status-${connectionState}`}>
-            <span className="status-dot" />
-            <span>{connectionState === "live" ? "Live stream connected" : "Reconnecting"}</span>
+    <main className="min-h-screen bg-background">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
+        {errorMessage ? (
+          <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-red-200">
+            {errorMessage}
           </div>
-          <div className="status-note">Last update: {formatTimestamp(lastUpdateAt)}</div>
-        </div>
-      </section>
+        ) : null}
 
-      {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
-      {mutationMessage ? <div className="mutation-banner">{mutationMessage}</div> : null}
+        {mutationMessage ? (
+          <div className="rounded-2xl border border-white/10 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
+            {mutationMessage}
+          </div>
+        ) : null}
 
-      <section className="metrics-grid">
-        {metricCards.map((card) => {
-          const Icon = card.icon;
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            title="Total Orders"
+            subtitle="All rows currently visible in the stream"
+            value={totals.total}
+            icon={Boxes}
+            badgeClassName="border-white/10 bg-white/5 text-foreground"
+          />
+          <MetricCard
+            title="Pending"
+            subtitle="Awaiting shipment"
+            value={totals.pending}
+            icon={CircleDashed}
+            badgeClassName={STATUS_META.pending.badgeClassName}
+          />
+          <MetricCard
+            title="Shipped"
+            subtitle="In transit right now"
+            value={totals.shipped}
+            icon={Truck}
+            badgeClassName={STATUS_META.shipped.badgeClassName}
+          />
+          <MetricCard
+            title="Delivered"
+            subtitle="Completed workflow"
+            value={totals.delivered}
+            icon={PackageCheck}
+            badgeClassName={STATUS_META.delivered.badgeClassName}
+          />
+        </section>
 
-          return (
-            <article key={card.title} className={`metric-card metric-${card.tone}`}>
-              <div>
-                <p className="metric-title">{card.title}</p>
-                <p className="metric-value">{card.value}</p>
-                <p className="metric-subtitle">{card.subtitle}</p>
+        <section className="space-y-6">
+          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-card/80 shadow-none">
+            <CardHeader className="border-b border-white/10 px-6 pb-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <CardDescription>Live order activity</CardDescription>
+                  <CardTitle className="mt-2 text-2xl tracking-tight">Area Chart - Interactive</CardTitle>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Recent order changes and live order volume from the replication stream.
+                  </p>
+                </div>
+                <div className="w-full md:w-[180px]">
+                  <Select value={chartRange} onValueChange={setChartRange}>
+                    <SelectTrigger className="w-full rounded-xl border-white/10 bg-background/60">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">Last 7 points</SelectItem>
+                      <SelectItem value="14">Last 14 points</SelectItem>
+                      <SelectItem value="20">Last 20 points</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="metric-icon-wrap">
-                <Icon size={22} />
-              </div>
-            </article>
-          );
-        })}
-      </section>
+            </CardHeader>
+            <CardContent className="px-6 py-6">
+              <ChartContainer config={STATUS_CHART_CONFIG} className="min-h-[220px] w-full">
+                <AreaChart accessibilityLayer data={chartData} margin={{ left: 8, right: 8, top: 4 }}>
+                  <CartesianGrid vertical={false} />
+                  <defs>
+                    <linearGradient id="fillLiveOrders" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-liveOrders)" stopOpacity={0.32} />
+                      <stop offset="100%" stopColor="var(--color-liveOrders)" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={12} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent hideIndicator />} />
+                  <Area
+                    type="monotone"
+                    dataKey="liveOrders"
+                    fill="url(#fillLiveOrders)"
+                    stroke="var(--color-liveOrders)"
+                    strokeWidth={2}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="changes"
+                    stroke="var(--color-changes)"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
 
-      <section className="panel panel-controls">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Manual write path</p>
-            <h2>Create an order through the API</h2>
-          </div>
-          <div className="status-note">Visible updates still arrive back through CDC and SSE</div>
-        </div>
+          <Card className="rounded-[28px] border-white/10 bg-card/80 shadow-none">
+            <CardHeader className="px-6">
+              <CardDescription>Manual write path</CardDescription>
+              <CardTitle className="text-2xl tracking-tight">Create and control orders</CardTitle>
+              <CardDescription>
+                Writes go through the REST API, then the visible state comes back through CDC and
+                SSE.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-6 px-6">
+                <form className="grid gap-4 md:grid-cols-[1fr_1fr_180px_auto]" onSubmit={handleCreateOrder}>
+                  <div className="grid gap-2">
+                    <Label htmlFor="customer_name">Customer name</Label>
+                    <Input
+                      id="customer_name"
+                      value={formState.customer_name}
+                      onChange={(event) => {
+                        setFormState((current) => ({
+                          ...current,
+                          customer_name: event.target.value
+                        }));
+                      }}
+                      placeholder="Alicia Rivera"
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="product_name">Product name</Label>
+                    <Input
+                      id="product_name"
+                      value={formState.product_name}
+                      onChange={(event) => {
+                        setFormState((current) => ({
+                          ...current,
+                          product_name: event.target.value
+                        }));
+                      }}
+                      placeholder="Ergonomic Chair"
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={formState.status}
+                      onValueChange={(value) => {
+                        setFormState((current) => ({ ...current, status: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-background/60">
+                        <SelectValue placeholder="Choose status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2 self-end">
+                    <Button type="submit" disabled={isSubmitting} className="w-full rounded-full">
+                      {isSubmitting ? "Submitting..." : "Create order"}
+                    </Button>
+                  </div>
+                </form>
 
-        <form className="create-form" onSubmit={handleCreateOrder}>
-          <label>
-            <span>Customer name</span>
-            <input
-              value={formState.customer_name}
-              onChange={(event) => {
-                setFormState((current) => ({ ...current, customer_name: event.target.value }));
-              }}
-              placeholder="Alicia Rivera"
-              required
-            />
-          </label>
-          <label>
-            <span>Product name</span>
-            <input
-              value={formState.product_name}
-              onChange={(event) => {
-                setFormState((current) => ({ ...current, product_name: event.target.value }));
-              }}
-              placeholder="Ergonomic Chair"
-              required
-            />
-          </label>
-          <label>
-            <span>Status</span>
-            <select
-              value={formState.status}
-              onChange={(event) => {
-                setFormState((current) => ({ ...current, status: event.target.value }));
-              }}
-            >
-              <option value="pending">pending</option>
-              <option value="shipped">shipped</option>
-              <option value="delivered">delivered</option>
-            </select>
-          </label>
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Submitting..." : "Create order"}
-          </button>
-        </form>
+                <Separator />
 
-        <div className="simulator-row">
-          <div>
-            <p className="panel-kicker">Auto simulator</p>
-            <h2>{simulatorState.running ? "Simulator is running" : "Simulator is idle"}</h2>
-            <p className="status-note">
-              Ticks: {simulatorState.tickCount} | Next delay: {simulatorState.nextDelayMs ?? "-"}ms
-            </p>
-            <p className="status-note">
-              Last action: {simulatorState.lastAction ? `${simulatorState.lastAction.type} order #${simulatorState.lastAction.orderId}` : "No simulated writes yet"}
-            </p>
-            {simulatorState.lastError ? (
-              <p className="simulator-error">Last simulator error: {simulatorState.lastError}</p>
-            ) : null}
-          </div>
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="rounded-full px-2.5 py-1">
+                        Auto simulator
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        {simulatorState.running ? "Running" : "Idle"}
+                      </span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Ticks: {simulatorState.tickCount} · Next delay: {simulatorState.nextDelayMs ?? "-"}ms
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Last action: {simulatorState.lastAction ? `${simulatorState.lastAction.type} order #${simulatorState.lastAction.orderId}` : "No simulated writes yet"}
+                    </div>
+                    {simulatorState.lastError ? (
+                      <div className="text-sm text-red-200">{simulatorState.lastError}</div>
+                    ) : null}
+                  </div>
 
-          <div className="simulator-actions">
-            <button
-              type="button"
-              disabled={isSimulatorPending || simulatorState.running}
-              onClick={() => {
-                handleSimulator("start");
-              }}
-            >
-              {isSimulatorPending && !simulatorState.running ? "Starting..." : "Start simulator"}
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={isSimulatorPending || !simulatorState.running}
-              onClick={() => {
-                handleSimulator("stop");
-              }}
-            >
-              {isSimulatorPending && simulatorState.running ? "Stopping..." : "Stop simulator"}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="dashboard-grid">
-        <article className="panel panel-chart">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Status distribution</p>
-              <h2>Order flow by stage</h2>
-            </div>
-          </div>
-
-          <div className="chart-area">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} barCategoryGap={18}>
-                <CartesianGrid vertical={false} stroke="rgba(148, 163, 184, 0.18)" />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{ fill: "rgba(96, 165, 250, 0.08)" }} />
-                <Bar dataKey="value" radius={[10, 10, 0, 0]} fill="#7c9cff" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-
-        <article className="panel panel-feed">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Live feed</p>
-              <h2>Activity stream</h2>
-            </div>
-            <Activity size={18} className="panel-icon" />
-          </div>
-
-          <div className="activity-list">
-            {activity.length === 0 ? (
-              <div className="empty-state">Waiting for the next CDC event...</div>
-            ) : (
-              activity.map((entry) => (
-                <div key={entry.id} className="activity-item">
-                  <div className="activity-marker" />
-                  <div>
-                    <div className="activity-label">{entry.label}</div>
-                    <div className="activity-time">{formatTimestamp(entry.timestamp)}</div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      disabled={isSimulatorPending || simulatorState.running}
+                      className="rounded-full"
+                      onClick={() => {
+                        handleSimulator("start");
+                      }}
+                    >
+                      <Play data-icon="inline-start" />
+                      {isSimulatorPending && !simulatorState.running ? "Starting..." : "Start simulator"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={isSimulatorPending || !simulatorState.running}
+                      className="rounded-full"
+                      onClick={() => {
+                        handleSimulator("stop");
+                      }}
+                    >
+                      <Pause data-icon="inline-start" />
+                      {isSimulatorPending && simulatorState.running ? "Stopping..." : "Stop simulator"}
+                    </Button>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </article>
-      </section>
+            </CardContent>
+          </Card>
 
-      <section className="panel panel-table">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Live inventory</p>
-            <h2>Orders table</h2>
-          </div>
-          <div className="status-note">Rows update from the SSE stream automatically</div>
-        </div>
+          <Card className="rounded-[28px] border-white/10 bg-card/80 shadow-none">
+            <CardHeader className="px-6">
+              <CardDescription>Orders table</CardDescription>
+              <CardTitle className="text-2xl tracking-tight">Current replicated rows</CardTitle>
+              <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
+            </CardHeader>
+            <CardContent className="px-6">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/10 hover:bg-transparent">
+                      <TableHead className="pl-0">ID</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Updated</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders.length === 0 ? (
+                      <TableRow className="border-white/10">
+                        <TableCell colSpan={6} className="h-24 px-0 text-center text-muted-foreground">
+                          No orders to display yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      orders.map((order) => {
+                        const statusMeta = STATUS_META[order.status] || STATUS_META.pending;
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Customer</th>
-                <th>Product</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="empty-row">
-                    No orders to display yet.
-                  </td>
-                </tr>
-              ) : (
-                orders.map((order) => (
-                  <tr key={order.id}>
-                    <td>#{order.id}</td>
-                    <td>{order.customer_name}</td>
-                    <td>{order.product_name}</td>
-                    <td>
-                      <span className={`table-badge badge-${order.status}`}>{order.status}</span>
-                    </td>
-                    <td>{formatTimestamp(order.updated_at)}</td>
-                    <td>
-                      <div className="action-row">
-                        <select
-                          value={order.status}
-                          disabled={activeOrderId === Number(order.id)}
-                          onChange={(event) => {
-                            handleStatusChange(order.id, event.target.value);
-                          }}
-                        >
-                          <option value="pending">pending</option>
-                          <option value="shipped">shipped</option>
-                          <option value="delivered">delivered</option>
-                        </select>
-                        <button
-                          type="button"
-                          className="danger-button"
-                          disabled={activeOrderId === Number(order.id)}
-                          onClick={() => {
-                            handleDeleteOrder(order.id);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                        return (
+                          <TableRow key={order.id} className="border-white/10">
+                            <TableCell className="pl-0 font-medium">#{order.id}</TableCell>
+                            <TableCell>{order.customer_name}</TableCell>
+                            <TableCell>{order.product_name}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={cn("rounded-full", statusMeta.badgeClassName)}>
+                                {statusMeta.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {formatTimestamp(order.updated_at)}
+                            </TableCell>
+                            <TableCell className="pr-0 text-right">
+                              <div className="flex justify-end">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 rounded-full border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={activeOrderId === Number(order.id)}
+                                  onClick={() => {
+                                    handleDeleteOrder(order.id);
+                                  }}
+                                >
+                                  <Trash2 />
+                                  Delete
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+            </CardContent>
+          </Card>
+        </section>
+      </div>
     </main>
   );
 }
