@@ -44,7 +44,7 @@ flowchart LR
     SSE -->|"snapshot + live events"| Browser
 ```
 
-Read it in two passes:
+A simple way to read the diagram:
 
 1. **Write path:** the browser or simulator writes through Fastify REST endpoints into the `orders` table.
 2. **Update path:** PostgreSQL records the commit in WAL, logical replication exposes `orders_publication` through the slot, the backend CDC manager converts the database change into an app event, and the SSE hub pushes it to the browser.
@@ -56,22 +56,22 @@ Read it in two passes:
 The system has three main parts: writes, change capture, and browser updates.
 
 ### Write Path
-1. **User Action / Simulator Action:** When a user fills out the "Quick Create" form, or when the built-in Order Simulator runs, an HTTP request is made to the backend.
-2. **REST Endpoints:** The Fastify server processes the request inside `backend/src/routes/orders.js` (for CRUD) or `backend/src/routes/simulator.js` (for automated ticks).
-3. **Database Write:** The backend issues a standard SQL query (`INSERT`, `UPDATE`, or `DELETE`) to the PostgreSQL database pool. 
+1. **User or simulator action:** When a user fills out the "Quick Create" form, or when the simulator runs, an HTTP request is made to the backend.
+2. **REST endpoints:** Fastify processes the request inside `backend/src/routes/orders.js` or `backend/src/routes/simulator.js`.
+3. **Database write:** The backend runs a normal SQL query (`INSERT`, `UPDATE`, or `DELETE`) against PostgreSQL.
 
 ### Change Capture
-1. **WAL (Write-Ahead Log):** PostgreSQL is configured with `wal_level = logical`. Every committed database transaction is written to the WAL first for durability.
-2. **Publications:** We define a publication `orders_publication` on the database specifically for the `orders` table.
-3. **Logical Replication Slot:** A replication slot `orders_dashboard_slot` is initialized. It tracks the consumer position in the stream with an LSN (Log Sequence Number). That lets the backend resume from the last acknowledged position after a restart, as long as the slot and retained WAL still exist.
-4. **CDC Consumer:** The backend's `OrdersCdcManager` (implemented in `backend/src/cdc.js`) connects to PostgreSQL using `pg-logical-replication`, subscribes with the `pgoutput` plugin, and reads only the changes exposed by `orders_publication`.
-5. **Normalization:** The manager listens for `insert`, `update`, and `delete` events on the `orders` table. It normalizes these database-level changes into app-level JSON events containing the row state, operation type, and metadata.
+1. **WAL:** PostgreSQL is configured with `wal_level = logical`. Every committed transaction is written to the WAL first.
+2. **Publication:** `orders_publication` tells PostgreSQL that this consumer only wants changes from the `orders` table.
+3. **Replication slot:** `orders_dashboard_slot` tracks how far the CDC consumer has read, using an LSN (Log Sequence Number). That lets the backend resume from the right place after a restart, as long as the slot and retained WAL still exist.
+4. **CDC consumer:** `OrdersCdcManager` in `backend/src/cdc.js` connects with `pg-logical-replication`, subscribes with the `pgoutput` plugin, and reads the changes exposed by `orders_publication`.
+5. **Normalization:** The manager turns `insert`, `update`, and `delete` changes into app-level JSON events.
 
 ### Browser Updates
-1. **SSE Subscriptions:** When a user opens the React dashboard, the browser establishes a long-lived HTTP connection to the backend (`GET /events`).
-2. **SSE Hub Registry:** The Fastify server registers the connection inside the `SseHub` client registry (implemented in `backend/src/sse.js`). The server then sends a `connected` event and a fresh snapshot of the current `orders` table so the client starts from known state.
-3. **Broadcasting:** When the `OrdersCdcManager` parses a new database transaction, it passes the normalized event to the `SseHub`, which loops through all registered browser connections and pushes the event payload down the SSE connection.
-4. **Idempotent UI Update:** The React frontend (in `frontend/src/App.jsx`) receives the event, updates rows by `order.id`, and re-renders the charts, metric cards, and table.
+1. **Open `/events`:** When the dashboard opens, the browser creates a long-lived `EventSource` connection to `GET /events`.
+2. **Send snapshot:** The backend registers that connection in `SseHub`, sends a `connected` event, and then sends the current `orders` snapshot.
+3. **Push changes:** When the CDC manager receives a database change, it sends an `order.changed` event through the SSE hub to connected browsers.
+4. **Update React state:** The frontend receives the event, updates rows by `order.id`, and re-renders the cards, charts, and table.
 
 ---
 
@@ -194,7 +194,7 @@ PostgreSQL WAL / logical replication
   -> browser clients
 ```
 
-The main changes I would make with more time:
+For a production version, the main changes would be:
 
 - **Separate the CDC worker:** run the WAL/logical-replication consumer as its own service instead of inside the API server.
 - **Add a durable broker:** publish normalized order events to Kafka, Redis Streams, RabbitMQ, or NATS JetStream before sending them to browsers.
