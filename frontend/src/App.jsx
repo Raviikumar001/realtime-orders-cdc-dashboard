@@ -13,7 +13,7 @@ import {
   Zap
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,13 @@ const STATUS_CHART_CONFIG = {
   }
 };
 
+const VOLUME_CHART_CONFIG = {
+  writes: {
+    label: "Writes",
+    color: "var(--chart-1)"
+  }
+};
+
 function sortOrders(nextOrders) {
   return [...nextOrders].sort((left, right) => Number(left.id) - Number(right.id));
 }
@@ -146,6 +153,32 @@ function buildSeriesFromOrders(orders) {
     nextEntry.shipped = totals.shipped;
     nextEntry.delivered = totals.delivered;
     series.push(nextEntry);
+  }
+
+  return series;
+}
+
+function buildVolumeSeriesFromOrders(orders) {
+  const sorted = [...orders].sort(
+    (left, right) => new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
+  );
+  const series = [];
+
+  for (const order of sorted) {
+    const label = formatChartLabel(order.updated_at);
+    const previous = series[series.length - 1];
+
+    if (previous && previous.label === label) {
+      previous.timestamp = order.updated_at;
+      previous.writes += 1;
+      continue;
+    }
+
+    series.push({
+      timestamp: order.updated_at,
+      label,
+      writes: 1
+    });
   }
 
   return series;
@@ -356,6 +389,16 @@ export default function App() {
   const chartData = useMemo(
     () => buildSeriesFromOrders(orders).slice(-Number(chartRange)),
     [chartRange, orders]
+  );
+
+  const volumeData = useMemo(
+    () => buildVolumeSeriesFromOrders(orders).slice(-Number(chartRange)),
+    [chartRange, orders]
+  );
+
+  const totalWritesInRange = useMemo(
+    () => volumeData.reduce((total, point) => total + point.writes, 0),
+    [volumeData]
   );
 
   async function handleCreateOrder(event) {
@@ -579,6 +622,45 @@ export default function App() {
                     stackId="statuses"
                   />
                 </AreaChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-[24px] border-white/10 bg-white/[0.035] shadow-none">
+            <CardHeader className="grid gap-4 border-b border-white/10 px-6 pb-0 md:grid-cols-[minmax(0,1fr)_22rem]">
+              <div className="pb-6">
+                <CardTitle className="text-2xl tracking-tight">Line Chart - Interactive</CardTitle>
+                <CardDescription className="mt-2">
+                  Daily order write volume from the same replicated rows.
+                </CardDescription>
+              </div>
+              <div className="grid grid-cols-2 border-t border-white/10 md:border-t-0 md:border-l">
+                <div className="px-6 py-5">
+                  <CardDescription>Total writes</CardDescription>
+                  <div className="mt-1 text-3xl font-semibold tracking-tight">{totalWritesInRange}</div>
+                </div>
+                <div className="border-l border-white/10 px-6 py-5">
+                  <CardDescription>Active days</CardDescription>
+                  <div className="mt-1 text-3xl font-semibold tracking-tight">{volumeData.length}</div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-6 py-6">
+              <ChartContainer config={VOLUME_CHART_CONFIG} className="h-[230px] min-h-0 w-full">
+                <LineChart accessibilityLayer data={volumeData} margin={{ left: 8, right: 8, top: 10 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={12} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                  <Line
+                    type="monotone"
+                    dataKey="writes"
+                    stroke="var(--color-writes)"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
               </ChartContainer>
             </CardContent>
           </Card>
