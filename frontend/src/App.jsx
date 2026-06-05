@@ -1,11 +1,16 @@
 import {
+  Activity,
   Boxes,
   CircleDashed,
+  Database,
   PackageCheck,
   Pause,
   Play,
+  Plus,
+  SlidersHorizontal,
   Trash2,
-  Truck
+  Truck,
+  Zap
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
@@ -148,14 +153,14 @@ function buildSeriesFromOrders(orders) {
 
 function MetricCard({ title, subtitle, value, icon: Icon, badgeClassName }) {
   return (
-    <Card className="gap-2 rounded-2xl border-white/10 bg-card/80 py-4 shadow-none">
+    <Card className="gap-3 rounded-2xl border-white/10 bg-gradient-to-b from-white/[0.075] to-white/[0.025] py-5 shadow-none">
       <CardHeader className="px-5 pb-0">
         <div className="flex items-start justify-between gap-4">
           <div>
             <CardDescription>{title}</CardDescription>
-            <CardTitle className="mt-1.5 text-3xl tracking-tight">{value}</CardTitle>
+            <CardTitle className="mt-2 text-3xl tracking-tight">{value}</CardTitle>
           </div>
-          <div className={cn("rounded-full border p-2.5", badgeClassName)}>
+          <div className={cn("rounded-full border px-2.5 py-1.5", badgeClassName)}>
             <Icon className="size-4" />
           </div>
         </div>
@@ -430,18 +435,36 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
-        {errorMessage ? (
-          <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-red-200">
-            {errorMessage}
-          </div>
-        ) : null}
+      <div className="mx-auto max-w-[1440px] px-4 py-4 md:px-6 md:py-6">
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#101010] shadow-2xl shadow-black/40">
+          <header className="flex h-16 items-center justify-between border-b border-white/10 px-5 md:px-7">
+            <div className="flex items-center gap-3">
+              <div className="flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04]">
+                <Database className="size-4" />
+              </div>
+              <div>
+                <div className="font-semibold leading-none">Orders Console</div>
+                <div className="mt-1 text-xs text-muted-foreground">WAL / CDC / SSE dashboard</div>
+              </div>
+            </div>
+            <Badge variant="outline" className="rounded-full border-white/10 px-3 py-1 text-muted-foreground">
+              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-emerald-400" />
+              Live
+            </Badge>
+          </header>
 
-        {mutationMessage ? (
-          <div className="rounded-2xl border border-white/10 bg-card/70 px-4 py-3 text-sm text-muted-foreground">
-            {mutationMessage}
-          </div>
-        ) : null}
+          <div className="space-y-6 p-5 md:p-7">
+            {errorMessage ? (
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-red-200">
+                {errorMessage}
+              </div>
+            ) : null}
+
+            {mutationMessage ? (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-muted-foreground">
+                {mutationMessage}
+              </div>
+            ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
@@ -475,7 +498,7 @@ export default function App() {
         </section>
 
         <section className="space-y-6">
-          <Card className="overflow-hidden rounded-[28px] border-white/10 bg-card/80 shadow-none">
+          <Card className="overflow-hidden rounded-[24px] border-white/10 bg-white/[0.035] shadow-none">
             <CardHeader className="border-b border-white/10 px-6 pb-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
@@ -485,17 +508,27 @@ export default function App() {
                     Cumulative pending, shipped, and delivered totals from replicated order rows.
                   </p>
                 </div>
-                <div className="w-full md:w-[180px]">
-                  <Select value={chartRange} onValueChange={setChartRange}>
-                    <SelectTrigger className="w-full rounded-xl border-white/10 bg-background/60">
-                      <SelectValue placeholder="Select range" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="7">Last 7 days</SelectItem>
-                      <SelectItem value="14">Last 14 days</SelectItem>
-                      <SelectItem value="20">Last 20 days</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid w-full grid-cols-3 overflow-hidden rounded-xl border border-white/10 md:w-auto">
+                  {[
+                    ["20", "Last 20 days"],
+                    ["14", "Last 14 days"],
+                    ["7", "Last 7 days"]
+                  ].map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      variant="ghost"
+                      className={cn(
+                        "h-9 rounded-none border-r border-white/10 px-4 text-xs last:border-r-0 hover:bg-white/10",
+                        chartRange === value && "bg-white/15 text-foreground hover:bg-white/15"
+                      )}
+                      onClick={() => {
+                        setChartRange(value);
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
                 </div>
               </div>
             </CardHeader>
@@ -550,10 +583,10 @@ export default function App() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[28px] border-white/10 bg-card/80 shadow-none">
+          <Card className="rounded-[24px] border-white/10 bg-white/[0.035] shadow-none">
             <CardHeader className="px-6">
               <CardDescription>Manual write path</CardDescription>
-              <CardTitle className="text-2xl tracking-tight">Create and control orders</CardTitle>
+              <CardTitle className="text-2xl tracking-tight">Quick Create</CardTitle>
               <CardDescription>
                 Writes go through the REST API, then the visible state comes back through CDC and
                 SSE.
@@ -613,6 +646,7 @@ export default function App() {
                   </div>
                   <div className="grid gap-2 self-end">
                     <Button type="submit" disabled={isSubmitting} className="w-full rounded-full">
+                      <Plus data-icon="inline-start" />
                       {isSubmitting ? "Submitting..." : "Create order"}
                     </Button>
                   </div>
@@ -624,6 +658,7 @@ export default function App() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="rounded-full px-2.5 py-1">
+                        <Zap className="mr-1 size-3" />
                         Auto simulator
                       </Badge>
                       <span className="text-sm text-muted-foreground">
@@ -670,17 +705,37 @@ export default function App() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[28px] border-white/10 bg-card/80 shadow-none">
-            <CardHeader className="px-6">
-              <CardDescription>Orders table</CardDescription>
-              <CardTitle className="text-2xl tracking-tight">Current replicated rows</CardTitle>
-              <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
+          <Card className="rounded-[24px] border-white/10 bg-white/[0.035] shadow-none">
+            <CardHeader className="gap-4 px-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <CardDescription>Orders table</CardDescription>
+                  <CardTitle className="text-2xl tracking-tight">Current replicated rows</CardTitle>
+                  <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="rounded-lg border-white/10 bg-transparent">
+                    <SlidersHorizontal data-icon="inline-start" />
+                    Columns
+                  </Button>
+                  <Button variant="outline" size="sm" className="rounded-lg border-white/10 bg-transparent">
+                    <Activity data-icon="inline-start" />
+                    {orders.length} Rows
+                  </Button>
+                </div>
+              </div>
+              <div className="flex w-fit overflow-hidden rounded-lg bg-white/10 p-1 text-sm text-muted-foreground">
+                <span className="rounded-md bg-background px-3 py-1 text-foreground">All</span>
+                <span className="px-3 py-1">Pending {totals.pending}</span>
+                <span className="px-3 py-1">Shipped {totals.shipped}</span>
+                <span className="px-3 py-1">Delivered {totals.delivered}</span>
+              </div>
             </CardHeader>
             <CardContent className="px-6">
               <div className="scrollbar-none max-h-[520px] overflow-y-auto pr-2">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-white/10 hover:bg-transparent">
+                    <TableRow className="sticky top-0 z-10 border-white/10 bg-[#252525] hover:bg-[#252525]">
                       <TableHead className="pl-0">ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Product</TableHead>
@@ -701,7 +756,7 @@ export default function App() {
                         const statusMeta = STATUS_META[order.status] || STATUS_META.pending;
 
                         return (
-                          <TableRow key={order.id} className="border-white/10">
+                          <TableRow key={order.id} className="border-white/10 hover:bg-white/[0.035]">
                             <TableCell className="pl-0 font-medium">#{order.id}</TableCell>
                             <TableCell>{order.customer_name}</TableCell>
                             <TableCell>{order.product_name}</TableCell>
@@ -742,6 +797,8 @@ export default function App() {
             </CardContent>
           </Card>
         </section>
+          </div>
+        </div>
       </div>
     </main>
   );
