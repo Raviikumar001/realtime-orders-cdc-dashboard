@@ -96,4 +96,12 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

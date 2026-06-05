@@ -8,7 +8,7 @@ import {
   Truck
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, Line, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/card";
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent
 } from "@/components/ui/chart";
@@ -67,12 +69,16 @@ const STATUS_META = {
 };
 
 const STATUS_CHART_CONFIG = {
-  liveOrders: {
-    label: "Live orders",
+  pending: {
+    label: "Pending",
+    color: "var(--chart-3)"
+  },
+  shipped: {
+    label: "Shipped",
     color: "var(--chart-1)"
   },
-  changes: {
-    label: "Changes",
+  delivered: {
+    label: "Delivered",
     color: "var(--chart-2)"
   }
 };
@@ -96,13 +102,38 @@ function formatChartLabel(value) {
   });
 }
 
-function buildChartEntry(timestamp, liveOrders, changes) {
+function buildChartEntry(timestamp) {
   return {
     timestamp,
     label: formatChartLabel(timestamp),
-    liveOrders,
-    changes
+    pending: 0,
+    shipped: 0,
+    delivered: 0
   };
+}
+
+function buildSeriesFromOrders(orders) {
+  const sorted = [...orders].sort(
+    (left, right) => new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
+  );
+  const series = [];
+
+  for (const order of sorted) {
+    const label = formatChartLabel(order.updated_at);
+    const previous = series[series.length - 1];
+
+    if (previous && previous.label === label) {
+      previous.timestamp = order.updated_at;
+      previous[order.status] = (previous[order.status] || 0) + 1;
+      continue;
+    }
+
+    const nextEntry = buildChartEntry(order.updated_at);
+    nextEntry[order.status] = 1;
+    series.push(nextEntry);
+  }
+
+  return series;
 }
 
 function MetricCard({ title, subtitle, value, icon: Icon, badgeClassName }) {
@@ -126,7 +157,6 @@ function MetricCard({ title, subtitle, value, icon: Icon, badgeClassName }) {
 
 export default function App() {
   const [orders, setOrders] = useState([]);
-  const [eventSeries, setEventSeries] = useState([]);
   const [chartRange, setChartRange] = useState("14");
   const [errorMessage, setErrorMessage] = useState("");
   const [mutationMessage, setMutationMessage] = useState("");
@@ -147,10 +177,14 @@ export default function App() {
   const [isSimulatorPending, setIsSimulatorPending] = useState(false);
 
   async function request(path, options) {
+    const headers = options?.body
+      ? {
+          "Content-Type": "application/json"
+        }
+      : undefined;
+
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers,
       ...options
     });
 
@@ -166,24 +200,40 @@ export default function App() {
     return response.json();
   }
 
+  async function refreshOrders() {
+    const response = await fetch(`${API_BASE_URL}/orders`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch orders");
+    }
+
+    const nextOrders = sortOrders(await response.json());
+
+    setOrders(nextOrders);
+    setErrorMessage("");
+
+    return nextOrders;
+  }
+
   useEffect(() => {
     let active = true;
 
     async function loadOrders() {
       try {
-        const response = await fetch(`${API_BASE_URL}/orders`);
+        const nextOrders = await fetch(`${API_BASE_URL}/orders`).then((response) => {
+          if (!response.ok) {
+            throw new Error("Failed to fetch orders");
+          }
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch orders");
-        }
-
-        const nextOrders = await response.json();
+          return response.json();
+        });
 
         if (!active) {
           return;
         }
 
-        setOrders(sortOrders(nextOrders));
+        const sortedOrders = sortOrders(nextOrders);
+        setOrders(sortedOrders);
         setErrorMessage("");
       } catch (error) {
         if (!active) {
@@ -223,7 +273,7 @@ export default function App() {
     }
 
     loadSimulatorState();
-    const interval = setInterval(loadSimulatorState, 3000);
+    const interval = setInterval(loadSimulatorState, 500);
 
     return () => {
       active = false;
@@ -246,12 +296,6 @@ export default function App() {
       const payload = JSON.parse(event.data);
       const nextOrders = sortOrders(payload);
       setOrders(nextOrders);
-
-      if (nextOrders.length > 0) {
-        setEventSeries([
-          buildChartEntry(nextOrders[nextOrders.length - 1].updated_at, nextOrders.length, nextOrders.length)
-        ]);
-      }
     });
 
     stream.addEventListener("order.changed", (event) => {
@@ -267,25 +311,6 @@ export default function App() {
           nextOrders.push(payload.order);
           nextOrders = sortOrders(nextOrders);
         }
-
-        setEventSeries((series) => {
-          const nextLabel = formatChartLabel(payload.meta.receivedAt);
-          const nextSeries = [...series];
-
-          if (nextSeries.length > 0 && nextSeries[nextSeries.length - 1].label === nextLabel) {
-            const previous = nextSeries[nextSeries.length - 1];
-            nextSeries[nextSeries.length - 1] = {
-              ...previous,
-              timestamp: payload.meta.receivedAt,
-              liveOrders: nextOrders.length,
-              changes: previous.changes + 1
-            };
-          } else {
-            nextSeries.push(buildChartEntry(payload.meta.receivedAt, nextOrders.length, 1));
-          }
-
-          return nextSeries.slice(-20);
-        });
 
         return nextOrders;
       });
@@ -314,11 +339,8 @@ export default function App() {
   }, [orders]);
 
   const chartData = useMemo(
-    () =>
-      eventSeries.length > 0
-        ? eventSeries.slice(-Number(chartRange))
-        : [buildChartEntry(new Date().toISOString(), totals.total, 0)],
-    [chartRange, eventSeries, totals.total]
+    () => buildSeriesFromOrders(orders).slice(-Number(chartRange)),
+    [chartRange, orders]
   );
 
   async function handleCreateOrder(event) {
@@ -346,6 +368,11 @@ export default function App() {
   }
 
   async function handleDeleteOrder(orderId) {
+    if (!orderId) {
+      setMutationMessage("Cannot delete this row because it is missing an order id.");
+      return;
+    }
+
     setActiveOrderId(orderId);
     setMutationMessage("");
 
@@ -353,8 +380,16 @@ export default function App() {
       await request(`/orders/${orderId}`, {
         method: "DELETE"
       });
-      setOrders((current) => current.filter((order) => Number(order.id) !== Number(orderId)));
-      setMutationMessage(`Delete request for order #${orderId} submitted. Waiting for CDC confirmation.`);
+      setOrders((current) => {
+        const nextOrders = current.filter((order) => Number(order.id) !== Number(orderId));
+        return nextOrders;
+      });
+      setMutationMessage(`Order #${orderId} deleted.`);
+      refreshOrders().catch(() => {
+        setMutationMessage(
+          `Order #${orderId} deleted. The table was updated locally, but the follow-up refresh failed.`
+        );
+      });
     } catch (error) {
       setMutationMessage(error.message);
     } finally {
@@ -446,40 +481,59 @@ export default function App() {
                       <SelectValue placeholder="Select range" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="7">Last 7 points</SelectItem>
-                      <SelectItem value="14">Last 14 points</SelectItem>
-                      <SelectItem value="20">Last 20 points</SelectItem>
+                      <SelectItem value="7">Last 7 days</SelectItem>
+                      <SelectItem value="14">Last 14 days</SelectItem>
+                      <SelectItem value="20">Last 20 days</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="px-6 py-6">
-              <ChartContainer config={STATUS_CHART_CONFIG} className="min-h-[220px] w-full">
+              <ChartContainer config={STATUS_CHART_CONFIG} className="h-[240px] min-h-0 w-full">
                 <AreaChart accessibilityLayer data={chartData} margin={{ left: 8, right: 8, top: 4 }}>
                   <CartesianGrid vertical={false} />
                   <defs>
-                    <linearGradient id="fillLiveOrders" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--color-liveOrders)" stopOpacity={0.32} />
-                      <stop offset="100%" stopColor="var(--color-liveOrders)" stopOpacity={0.02} />
+                    <linearGradient id="fillPending" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-pending)" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="var(--color-pending)" stopOpacity={0.04} />
+                    </linearGradient>
+                    <linearGradient id="fillShipped" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-shipped)" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="var(--color-shipped)" stopOpacity={0.04} />
+                    </linearGradient>
+                    <linearGradient id="fillDelivered" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-delivered)" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="var(--color-delivered)" stopOpacity={0.04} />
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={12} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent hideIndicator />} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
                   <Area
                     type="monotone"
-                    dataKey="liveOrders"
-                    fill="url(#fillLiveOrders)"
-                    stroke="var(--color-liveOrders)"
+                    dataKey="pending"
+                    fill="url(#fillPending)"
+                    stroke="var(--color-pending)"
                     strokeWidth={2}
+                    stackId="statuses"
                   />
-                  <Line
+                  <Area
                     type="monotone"
-                    dataKey="changes"
-                    stroke="var(--color-changes)"
-                    strokeWidth={1.5}
-                    dot={false}
+                    dataKey="shipped"
+                    fill="url(#fillShipped)"
+                    stroke="var(--color-shipped)"
+                    strokeWidth={2}
+                    stackId="statuses"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="delivered"
+                    fill="url(#fillDelivered)"
+                    stroke="var(--color-delivered)"
+                    strokeWidth={2}
+                    stackId="statuses"
                   />
                 </AreaChart>
               </ChartContainer>
@@ -613,6 +667,7 @@ export default function App() {
               <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
             </CardHeader>
             <CardContent className="px-6">
+              <div className="scrollbar-none max-h-[520px] overflow-y-auto pr-2">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/10 hover:bg-transparent">
@@ -655,8 +710,10 @@ export default function App() {
                                   variant="outline"
                                   size="sm"
                                   className="h-8 rounded-full border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                  disabled={activeOrderId === Number(order.id)}
-                                  onClick={() => {
+                                  disabled={String(activeOrderId) === String(order.id)}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
                                     handleDeleteOrder(order.id);
                                   }}
                                 >
@@ -671,6 +728,7 @@ export default function App() {
                     )}
                   </TableBody>
                 </Table>
+              </div>
             </CardContent>
           </Card>
         </section>
