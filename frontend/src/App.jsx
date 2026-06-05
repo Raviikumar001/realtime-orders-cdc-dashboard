@@ -358,7 +358,7 @@ export default function App() {
     });
 
     stream.addEventListener("error", () => {
-      setErrorMessage("Live stream interrupted. Waiting for reconnection.");
+      setErrorMessage("Live updates interrupted. Waiting for reconnection.");
     });
 
     return () => {
@@ -414,7 +414,7 @@ export default function App() {
         product_name: "",
         status: "pending"
       });
-      setMutationMessage("Order submitted. Waiting for CDC stream confirmation.");
+      setMutationMessage("Order submitted. The dashboard will update when the change arrives.");
     } catch (error) {
       setMutationMessage(error.message);
     } finally {
@@ -463,7 +463,7 @@ export default function App() {
       setSimulatorState(nextState);
       setMutationMessage(
         action === "start"
-          ? "Simulator started. New writes will flow back through CDC and SSE."
+          ? "Simulator started. New demo orders will appear automatically."
           : "Simulator stopped."
       );
     } catch (error) {
@@ -484,7 +484,7 @@ export default function App() {
               </div>
               <div>
                 <div className="font-semibold leading-none">Orders Console</div>
-                <div className="mt-1 text-xs text-muted-foreground">WAL / CDC / SSE dashboard</div>
+                <div className="mt-1 text-xs text-muted-foreground">Live orders dashboard</div>
               </div>
             </div>
             <Badge variant="outline" className="rounded-full border-white/10 px-3 py-1 text-muted-foreground">
@@ -509,7 +509,7 @@ export default function App() {
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             title="Total Orders"
-            subtitle="All rows currently visible in the stream"
+            subtitle="All rows currently visible in the dashboard"
             value={totals.total}
             icon={Boxes}
             badgeClassName="border-white/10 bg-white/5 text-foreground"
@@ -545,14 +545,14 @@ export default function App() {
                   <CardDescription>Live order activity</CardDescription>
                   <CardTitle className="mt-2 text-2xl tracking-tight">Status Trend</CardTitle>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Cumulative pending, shipped, and delivered totals from replicated order rows.
+                    Snapshot-derived totals using demo timestamps from the visible orders.
                   </p>
                 </div>
                 <div className="grid w-full grid-cols-3 overflow-hidden rounded-xl border border-white/10 md:w-auto">
                   {[
-                    ["20", "Last 20 days"],
-                    ["14", "Last 14 days"],
-                    ["7", "Last 7 days"]
+                    ["20", "Last 20 dates"],
+                    ["14", "Last 14 dates"],
+                    ["7", "Last 7 dates"]
                   ].map(([value, label]) => (
                     <Button
                       key={value}
@@ -628,7 +628,7 @@ export default function App() {
               <div className="pb-6">
                 <CardTitle className="text-2xl tracking-tight">Daily Status Lines</CardTitle>
                 <CardDescription className="mt-2">
-                  Daily pending, shipped, and delivered row counts from replicated orders.
+                  Daily pending, shipped, and delivered counts using demo timestamps.
                 </CardDescription>
               </div>
               <div className="grid grid-cols-2 border-t border-white/10 md:border-t-0 md:border-l">
@@ -684,8 +684,7 @@ export default function App() {
               <CardDescription>Manual write path</CardDescription>
               <CardTitle className="text-2xl tracking-tight">Quick Create</CardTitle>
               <CardDescription>
-                Writes go through the REST API, then the visible state comes back through CDC and
-                SSE.
+                Create an order and let the dashboard refresh itself when the change arrives.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6 px-6">
@@ -806,8 +805,8 @@ export default function App() {
               <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div>
                   <CardDescription>Orders table</CardDescription>
-                  <CardTitle className="text-2xl tracking-tight">Current replicated rows</CardTitle>
-                  <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
+                  <CardTitle className="text-2xl tracking-tight">Current orders</CardTitle>
+                  <CardDescription>Each row below reflects the latest state received by the dashboard.</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className="rounded-lg border-white/10 px-3 py-1.5 text-sm font-medium">
