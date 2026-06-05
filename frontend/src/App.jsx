@@ -7,7 +7,6 @@ import {
   Pause,
   Play,
   Plus,
-  SlidersHorizontal,
   Trash2,
   Truck,
   Zap
@@ -88,13 +87,6 @@ const STATUS_CHART_CONFIG = {
   }
 };
 
-const VOLUME_CHART_CONFIG = {
-  writes: {
-    label: "Writes",
-    color: "var(--chart-1)"
-  }
-};
-
 function sortOrders(nextOrders) {
   return [...nextOrders].sort((left, right) => Number(left.id) - Number(right.id));
 }
@@ -158,7 +150,7 @@ function buildSeriesFromOrders(orders) {
   return series;
 }
 
-function buildVolumeSeriesFromOrders(orders) {
+function buildDailyStatusSeriesFromOrders(orders) {
   const sorted = [...orders].sort(
     (left, right) => new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
   );
@@ -170,15 +162,13 @@ function buildVolumeSeriesFromOrders(orders) {
 
     if (previous && previous.label === label) {
       previous.timestamp = order.updated_at;
-      previous.writes += 1;
+      previous[order.status] = (previous[order.status] || 0) + 1;
       continue;
     }
 
-    series.push({
-      timestamp: order.updated_at,
-      label,
-      writes: 1
-    });
+    const nextEntry = buildChartEntry(order.updated_at);
+    nextEntry[order.status] = 1;
+    series.push(nextEntry);
   }
 
   return series;
@@ -316,7 +306,10 @@ export default function App() {
           return;
         }
 
-        setMutationMessage(error.message);
+        setSimulatorState((current) => ({
+          ...current,
+          lastError: error.message
+        }));
       }
     }
 
@@ -391,14 +384,18 @@ export default function App() {
     [chartRange, orders]
   );
 
-  const volumeData = useMemo(
-    () => buildVolumeSeriesFromOrders(orders).slice(-Number(chartRange)),
+  const lineChartData = useMemo(
+    () => buildDailyStatusSeriesFromOrders(orders).slice(-Number(chartRange)),
     [chartRange, orders]
   );
 
-  const totalWritesInRange = useMemo(
-    () => volumeData.reduce((total, point) => total + point.writes, 0),
-    [volumeData]
+  const totalOrdersInLineRange = useMemo(
+    () =>
+      lineChartData.reduce(
+        (total, point) => total + point.pending + point.shipped + point.delivered,
+        0
+      ),
+    [lineChartData]
   );
 
   async function handleCreateOrder(event) {
@@ -629,33 +626,50 @@ export default function App() {
           <Card className="overflow-hidden rounded-[24px] border-white/10 bg-white/[0.035] shadow-none">
             <CardHeader className="grid gap-4 border-b border-white/10 px-6 pb-0 md:grid-cols-[minmax(0,1fr)_22rem]">
               <div className="pb-6">
-                <CardTitle className="text-2xl tracking-tight">Line Chart - Interactive</CardTitle>
+                <CardTitle className="text-2xl tracking-tight">Daily Status Lines</CardTitle>
                 <CardDescription className="mt-2">
-                  Daily order write volume from the same replicated rows.
+                  Daily pending, shipped, and delivered row counts from replicated orders.
                 </CardDescription>
               </div>
               <div className="grid grid-cols-2 border-t border-white/10 md:border-t-0 md:border-l">
                 <div className="px-6 py-5">
-                  <CardDescription>Total writes</CardDescription>
-                  <div className="mt-1 text-3xl font-semibold tracking-tight">{totalWritesInRange}</div>
+                  <CardDescription>Rows in range</CardDescription>
+                  <div className="mt-1 text-3xl font-semibold tracking-tight">{totalOrdersInLineRange}</div>
                 </div>
                 <div className="border-l border-white/10 px-6 py-5">
                   <CardDescription>Active days</CardDescription>
-                  <div className="mt-1 text-3xl font-semibold tracking-tight">{volumeData.length}</div>
+                  <div className="mt-1 text-3xl font-semibold tracking-tight">{lineChartData.length}</div>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="px-6 py-6">
-              <ChartContainer config={VOLUME_CHART_CONFIG} className="h-[230px] min-h-0 w-full">
-                <LineChart accessibilityLayer data={volumeData} margin={{ left: 8, right: 8, top: 10 }}>
+              <ChartContainer config={STATUS_CHART_CONFIG} className="h-[230px] min-h-0 w-full">
+                <LineChart accessibilityLayer data={lineChartData} margin={{ left: 8, right: 8, top: 10 }}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={12} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
                   <Line
                     type="monotone"
-                    dataKey="writes"
-                    stroke="var(--color-writes)"
+                    dataKey="pending"
+                    stroke="var(--color-pending)"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="shipped"
+                    stroke="var(--color-shipped)"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="delivered"
+                    stroke="var(--color-delivered)"
                     strokeWidth={2}
                     dot={false}
                     activeDot={{ r: 4 }}
@@ -796,14 +810,10 @@ export default function App() {
                   <CardDescription>Each row below reflects the latest state seen by the SSE stream.</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" className="rounded-lg border-white/10 bg-transparent">
-                    <SlidersHorizontal data-icon="inline-start" />
-                    Columns
-                  </Button>
-                  <Button variant="outline" size="sm" className="rounded-lg border-white/10 bg-transparent">
+                  <Badge variant="outline" className="rounded-lg border-white/10 px-3 py-1.5 text-sm font-medium">
                     <Activity data-icon="inline-start" />
                     {orders.length} Rows
-                  </Button>
+                  </Badge>
                 </div>
               </div>
               <div className="flex w-fit overflow-hidden rounded-lg bg-white/10 p-1 text-sm text-muted-foreground">
